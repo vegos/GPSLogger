@@ -190,11 +190,11 @@ static void gpsdump(TinyGPS &gps)
      digitalWrite(GPSLed, LOW);
   Status = !Status;
 
-  // Get GPS Satellites. If less than 4, means no fix, so return
+  // Get GPS Satellites. If less than 4, means no fix -- return (wait for fix)
   int Sats = gps.satellites();
   //Serial.println(Sats);
 
-// ---------  Allos tropos gia elegxo gpsp lock -----------
+// ---------  Other way to check for GPS Lock -----------
 //  if (fix_age == TinyGPS::GPS_INVALID_AGE)
 //  {
 //    digitalWrite(FIXLed, LOW);
