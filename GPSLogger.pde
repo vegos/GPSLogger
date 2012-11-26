@@ -1,11 +1,12 @@
-#include "Wire.h"
+#include <Wire.h>
 #include <SD.h>
 #include <SoftwareSerial.h>
 #include <TinyGPS.h>
-#include "ADXL345.h"
+#include <ADXL345.h>
+#include <MemoryFree.h>
 
 TinyGPS gps;
-SoftwareSerial GPSSerial(6, 7);
+SoftwareSerial gpsserial(6, 7);
 static void gpsdump(TinyGPS &gps);
 static bool feedgps();
 
@@ -22,32 +23,29 @@ long startTime;          // For measuring the GPS Fix time
 
 ADXL345 accel;
 double xyz[3];
-double CalibratedAccelXYZ[3];
-double ThisSecondX, ThisSecondY, ThisSecondZ = 0;
-int CalibratedAngleX, CalibratedAngleY;
-int fooX, fooY, fooZ;
-int ThisSecondAngleX = 0;
-int ThisSecondAngleY = 0;
+float CalibratedAccelXYZ[3];
+float ThisSecondX, ThisSecondY, ThisSecondZ = 0;
+
+int TopSpeed = 0;
 
 boolean beeps = true;
 
 
 void setup()
 {
-  GPSSerial.begin(9600);
+  gpsserial.begin(9600);                          // Start the GPS serial port @ 9600
   pinMode(SDLed, OUTPUT);
   pinMode(GPSLed, OUTPUT);
   pinMode(BuzzerPin, OUTPUT);
   pinMode(SaveButton, INPUT_PULLUP);
-//  pinMode(CustomButton, INPUT_PULLUP);
   pinMode(FIXLed, OUTPUT);
   digitalWrite(BuzzerPin, LOW);
   digitalWrite(SDLed, LOW);
   digitalWrite(GPSLed, LOW);
   digitalWrite(FIXLed, LOW);
-  GPSSerial.println("$PMTK301,2*2E");              // DGPS = WAAS
+  gpsserial.println("$PMTK301,2*2E");              // DGPS = WAAS
   delay(1000);
-  GPSSerial.println("$PMTK397,0.4*39");            // Do not count speed less than 0,4m/s (1.4km/h)
+  gpsserial.println("$PMTK397,0.4*39");            // Do not count speed less than 0,4m/s (1.4km/h)
   delay(1000);
   // ADXL345 Start
   accel.powerOn();
@@ -60,11 +58,7 @@ void setup()
   CalibratedAccelXYZ[1] = xyz[1];
   CalibratedAccelXYZ[2] = xyz[2];
   
-  // Get default angle
-  accel.readAccel(&fooX, &fooY, &fooZ);
-  CalibratedAngleX = (atan2(fooY,fooZ)+PI)*RAD_TO_DEG;
-  CalibratedAngleY = (atan2(fooX,fooZ)+PI)*RAD_TO_DEG;
-  // Start SD Card
+  // Sart SD Card
   pinMode(10, OUTPUT);
   if (!SD.begin(4)) 
   {
@@ -78,27 +72,22 @@ void setup()
     delay(100);
     // Write the header -- explanation of the log file
     LogFile.println("");
-    LogFile.println(":: GPS/Acceleration Logger ::");
+    LogFile.println("  :: GPS/Acceleration Logger ::");
     LogFile.flush();
-    LogFile.println(" (c)2012 - Antonis Maglaras");
+    LogFile.println("    (c)2012 Antonis Maglaras");
     LogFile.println("");
     LogFile.flush();
-    LogFile.print("Default Acceleration on X: ");
+    LogFile.print("Startup Acceleration on X: ");
     LogFile.print(xyz[0],2);
     LogFile.print(" - Y: ");
     LogFile.print(xyz[1],2);
     LogFile.print(" - Z: ");
     LogFile.println(xyz[2],2);
-    LogFile.flush();
-    LogFile.print("Default Angle on X: ");
-    LogFile.print(CalibratedAngleX);
-    LogFile.print(" - Y: ");
-    LogFile.println(CalibratedAngleY);
+    LogFile.println("");
     LogFile.flush();
     // Turn on the SD Led if everything is OK
     digitalWrite(SDLed, HIGH);
   }
-  digitalWrite(FIXLed, LOW);
   buzzer();  
   beeps = true;
   PrevMillis = millis();
@@ -126,12 +115,6 @@ void loop()
       ThisSecondY = xyz[1]-CalibratedAccelXYZ[1];
     if ((xyz[2]-CalibratedAccelXYZ[2])>ThisSecondZ)
       ThisSecondZ = xyz[2]-CalibratedAccelXYZ[2];
-    // Accelerometer Reading -- Raw values for leaning calculations
-    accel.readAccel(&fooX, &fooY, &fooZ);
-    if ((CalibratedAngleX - ((atan2(fooY,fooZ)+PI)*RAD_TO_DEG))>ThisSecondAngleX)
-      ThisSecondAngleX = (CalibratedAngleX - ((atan2(fooY,fooZ)+PI)*RAD_TO_DEG));
-    if ((CalibratedAngleY - ((atan2(fooX,fooZ)+PI)*RAD_TO_DEG))>ThisSecondY)
-      ThisSecondAngleY = (CalibratedAngleY - ((atan2(fooX,fooZ)+PI)*RAD_TO_DEG));
   }
   
   // Process data from GPS -- Write them on SD card
@@ -141,26 +124,45 @@ void loop()
   ThisSecondX = 0;
   ThisSecondY = 0;
   ThisSecondZ = 0;
-  ThisSecondAngleX = 0;
-  ThisSecondAngleY = 0;
 }
 
 
 void CloseFile()
 {
+  LogFile.flush();
   LogFile.println("");
+  LogFile.print("Top Speed: ");
+  LogFile.print(TopSpeed);
+  LogFile.println(" km/h");
   LogFile.flush();
   delay(100);
   LogFile.close();
-  delay(100);
+  delay(250);
   while (true)
   {
+/*    
     digitalWrite(SDLed, HIGH);
     digitalWrite(GPSLed, LOW);
     delay(100);
     digitalWrite(SDLed, LOW);
     digitalWrite(GPSLed, HIGH);
     delay(100);
+*/
+// Blink the leds to indicate top speed.
+// Can display the last 2 digits.
+    digitalWrite(GPSLed, LOW);
+    digitalWrite(FIXLed, LOW);
+    digitalWrite(SDLed, HIGH);
+    delay(250);
+    for (int x=0; x<(TopSpeed/10%10); x++)
+      LedCount();
+    delay(1000);
+    digitalWrite(SDLed, LOW);
+    digitalWrite(GPSLed, HIGH);
+    for (int x=0; x<(TopSpeed%10); x++)
+      LedCount();
+    delay(3000);
+    digitalWrite(GPSLed, LOW);
   }
 }
 
@@ -171,7 +173,7 @@ static void gpsdump(TinyGPS &gps)
   int Sats = gps.satellites();
   if (Sats<255)
   {
-    if (beeps == true)
+    if (beeps)
     {
       // Write on file the GPS Fix time.
       LogFile.print("GPS Fix: ");
@@ -179,7 +181,7 @@ static void gpsdump(TinyGPS &gps)
       LogFile.println(" seconds.");
       LogFile.flush();
       LogFile.println("");
-      LogFile.println("Time,Date,Satellites,Latitude,Longitude,Altitude,Speed,Course,AccelerationX,AccelerationY,AccelerationZ,AngleX,AngleY");
+      LogFile.println("Time,Date,Satellites,Latitude,Longitude,Altitude,Speed,Course,AccelerationX,AccelerationY,AccelerationZ");
       LogFile.flush();
       // Beep when GPS locks for first time.
       buzzer();
@@ -199,16 +201,34 @@ static void gpsdump(TinyGPS &gps)
   int year;
   byte month, day, hour, minute, second, hundredths;
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
+
   if (age == TinyGPS::GPS_INVALID_AGE)
   {
-    LogFile.print("00:00:00,00/00/00");
+    LogFile.print("00:00:00,00/00/0000");
   }
   else
   {
-    char sz[32];
-    sprintf(sz, "%02d:%02d:%02d,%02d/%02d/%02d",
-        hour, minute, second, day, month, year);
-    LogFile.print(sz);
+    if (hour<10)
+      LogFile.print("0");
+    LogFile.print(hour);
+    LogFile.print(":");
+    if (minute<10)
+      LogFile.print("0");
+    LogFile.print(minute);
+    LogFile.print(":");
+    if (second<10)
+      LogFile.print("0");
+    LogFile.print(second);
+    LogFile.print(",");
+    if (day<10)
+      LogFile.print("0");
+    LogFile.print(day);
+    LogFile.print("/");
+    if (month<10)
+      LogFile.print("0");
+    LogFile.print(month);
+    LogFile.print("/");
+    LogFile.print(year);
   }
   LogFile.print(",");
   LogFile.print(Sats);
@@ -228,21 +248,19 @@ static void gpsdump(TinyGPS &gps)
   LogFile.print(",");
   LogFile.print(ThisSecondY,1);
   LogFile.print(",");
-  LogFile.print(ThisSecondZ,1);
-  LogFile.print(",");
-  LogFile.print(ThisSecondAngleX);
-  LogFile.print(",");
-  LogFile.println(ThisSecondAngleY);
+  LogFile.println(ThisSecondZ,1);
   LogFile.flush();  
+  if (gps.f_speed_kmph()>TopSpeed)
+    TopSpeed=gps.f_speed_kmph();
 }
 
 
 static bool feedgps()
 {
-  while (GPSSerial.available())
+  while (gpsserial.available())
   {
     digitalWrite(GPSLed, HIGH);              // Turn on GPSLed to indicate receiving of data
-    if (gps.encode(GPSSerial.read()))
+    if (gps.encode(gpsserial.read()))
     {
       digitalWrite(GPSLed, LOW);            // Turn off GPSLed when are OK
       return true;
@@ -260,3 +278,13 @@ void buzzer()
   digitalWrite(BuzzerPin, LOW);
   delay(50);
 }
+
+
+void LedCount()
+{
+  digitalWrite(FIXLed, HIGH);
+  delay(250);
+  digitalWrite(FIXLed, LOW);
+  delay(250);
+}
+
